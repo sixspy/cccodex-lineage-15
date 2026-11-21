@@ -7,6 +7,7 @@ export async function renderImpact(view, setMsg) {
   view.innerHTML = `
     <section class="card">
       <h2>影响分析</h2>
+      <p class="muted">当前已隔离节点数：${jobs.isolated_total} · 隔离口径：${jobs.isolation_scope}</p>
       <div class="row">
         <label>根节点<select id="root">${opts}</select></label>
         <button class="primary" id="go" type="button">启动影响分析</button>
@@ -16,7 +17,7 @@ export async function renderImpact(view, setMsg) {
       ${(jobs.items || []).map((j) => `<article class="card">
         <h3>${j.job_code}</h3>
         <span class="tag">${j.status}</span>
-        <p>根 ${j.node_code} · 命中 ${j.affected_count}</p>
+        <p>根 ${j.node_code} · 命中 ${j.affected_count} · 隔离跳过 ${j.isolated_count}</p>
         <p class="muted">${j.message}</p>
         <button data-d="${j.id}" type="button">详情</button>
         <pre class="muted" id="j${j.id}"></pre>

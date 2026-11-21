@@ -9,8 +9,10 @@ from app.seed import seed_if_needed
 from app.services import coverage as coverage_svc
 from app.services import edges as edges_svc
 from app.services import impact as impact_svc
+from app.services import ingest as ingest_svc
 from app.services import nodes as nodes_svc
 from app.services import notify as notify_svc
+from app.services import revisions as revisions_svc
 from app.services import settings as settings_svc
 from app.services.errors import ServiceError
 
@@ -199,11 +201,69 @@ def create_app() -> Bottle:
         _require_user()
         return _json({"item": edges_svc.void_edge(edge_id)})
 
+    @app.get("/api/edges/deps")
+    @wrap
+    def api_edges_deps():
+        _require_user()
+        return _json(edges_svc.list_edge_deps())
+
+    @app.get("/api/revisions")
+    @wrap
+    def api_revisions_list():
+        _require_user()
+        return _json(
+            {
+                "items": revisions_svc.list_windows(),
+                "isolated_total": revisions_svc.isolated_total(),
+            }
+        )
+
+    @app.get("/api/revisions/<window_id:int>/vouchers")
+    @wrap
+    def api_revisions_vouchers(window_id):
+        _require_user()
+        return _json({"items": revisions_svc.list_vouchers(window_id)})
+
+    @app.post("/api/revisions/open")
+    @wrap
+    def api_revisions_open():
+        user = _require_user()
+        body = _read_json()
+        return _json(
+            {"item": revisions_svc.open_window(str(body.get("scope") or ""), user)}
+        )
+
+    @app.post("/api/revisions/<window_id:int>/close")
+    @wrap
+    def api_revisions_close(window_id):
+        _require_user()
+        return _json({"item": revisions_svc.close_window(window_id)})
+
+    @app.get("/api/ingest")
+    @wrap
+    def api_ingest_list():
+        _require_user()
+        return _json({"items": ingest_svc.list_batches()})
+
+    @app.post("/api/ingest")
+    @wrap
+    def api_ingest_run():
+        _require_user()
+        body = _read_json()
+        return _json(
+            {
+                "item": ingest_svc.ingest_batch(
+                    int(body.get("node_id") or 0),
+                    str(body.get("catalog_fingerprint") or ""),
+                )
+            }
+        )
+
     @app.get("/api/impact/jobs")
     @wrap
     def api_impact_jobs():
         _require_user()
-        return _json({"items": impact_svc.list_jobs()})
+        return _json(impact_svc.impact_overview())
 
     @app.get("/api/impact/jobs/<job_id:int>")
     @wrap

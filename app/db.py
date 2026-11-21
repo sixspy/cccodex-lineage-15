@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS impact_jobs (
   root_node_id INTEGER NOT NULL REFERENCES lineage_nodes(id),
   status TEXT NOT NULL CHECK (status IN ('待执行','执行中','成功','失败')),
   affected_count INTEGER NOT NULL DEFAULT 0,
+  isolated_count INTEGER NOT NULL DEFAULT 0,
   message TEXT NOT NULL DEFAULT '',
   started_at TEXT,
   finished_at TEXT,
@@ -74,6 +75,50 @@ CREATE TABLE IF NOT EXISTS lab_settings (
   label TEXT NOT NULL
 );
 
+-- 目录修订隔离窗：开窗即锁定一份目录指纹，窗内节点由独立账册收凭证。
+-- 工程落点唯一：独立账册（不建影子草稿表），两种安置不可并存。
+CREATE TABLE IF NOT EXISTS revision_windows (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  window_code TEXT NOT NULL UNIQUE,
+  scope TEXT NOT NULL CHECK (scope IN ('ALL','ODS','DWD','DWS','ADS')),
+  status TEXT NOT NULL CHECK (status IN ('开窗中','已关窗')),
+  isolation_source TEXT NOT NULL DEFAULT '独立账册',
+  catalog_fingerprint TEXT NOT NULL,
+  node_count INTEGER NOT NULL DEFAULT 0,
+  opened_by TEXT NOT NULL DEFAULT '',
+  opened_at TEXT NOT NULL DEFAULT (datetime('now')),
+  closed_at TEXT
+);
+
+-- 同一目录范围只许一扇开窗（串行闸的库内兜底）。
+CREATE UNIQUE INDEX IF NOT EXISTS ux_revision_windows_open
+  ON revision_windows(scope) WHERE status='开窗中';
+
+-- 隔离凭证账册：一窗一节点一凭证，记下目录指纹供核齐。
+CREATE TABLE IF NOT EXISTS isolation_vouchers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  voucher_code TEXT NOT NULL UNIQUE,
+  window_id INTEGER NOT NULL REFERENCES revision_windows(id),
+  node_id INTEGER NOT NULL REFERENCES lineage_nodes(id),
+  node_code TEXT NOT NULL,
+  catalog_fingerprint TEXT NOT NULL,
+  source_mark TEXT NOT NULL DEFAULT '独立账册',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(window_id, node_id)
+);
+
+-- 清洗调度入库：目录指纹与隔离窗拧了就拦住。
+CREATE TABLE IF NOT EXISTS ingest_batches (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  batch_code TEXT NOT NULL UNIQUE,
+  node_id INTEGER NOT NULL REFERENCES lineage_nodes(id),
+  node_code TEXT NOT NULL,
+  catalog_fingerprint TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL CHECK (status IN ('已入库')),
+  message TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -87,6 +132,8 @@ def connect(db_path: str | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # 抢开同一隔离窗时让后到者短暂等待串行闸，而不是立刻报锁。
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 

@@ -1,6 +1,8 @@
 import { api } from './api.js';
 import { renderNodes } from './pages/nodes.js';
 import { renderEdges } from './pages/edges.js';
+import { renderEdgeDeps } from './pages/edgedeps.js';
+import { renderRevisions } from './pages/revisions.js';
 import { renderImpact } from './pages/impact.js';
 import { renderNotify } from './pages/notify.js';
 import { renderCoverage } from './pages/coverage.js';
@@ -11,6 +13,8 @@ const msg = document.getElementById('msg');
 const pages = {
   nodes: renderNodes,
   edges: renderEdges,
+  edgedeps: renderEdgeDeps,
+  revisions: renderRevisions,
   impact: renderImpact,
   notify: renderNotify,
   coverage: renderCoverage,

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from app.db import SCHEMA, get_db, init_schema
 
-SCHEMA_VERSION = "lineage-v1"
+SCHEMA_VERSION = "lineage-v2"
 
 
 def _schema_compatible(conn) -> bool:
@@ -31,6 +31,9 @@ def seed_if_needed(db_path: str | None = None) -> dict:
                 "impact_hits",
                 "impact_jobs",
                 "coverage_reports",
+                "ingest_batches",
+                "isolation_vouchers",
+                "revision_windows",
                 "lineage_edges",
                 "lineage_nodes",
                 "lab_settings",
@@ -84,7 +87,8 @@ def seed_if_needed(db_path: str | None = None) -> dict:
             "INSERT INTO lab_settings(key, value, label) VALUES "
             "('impact_max_hop','8','影响最大跳数'),"
             "('notify_channel','站内','默认通知渠道'),"
-            "('coverage_mode','严格','覆盖对账模式')"
+            "('coverage_mode','严格','覆盖对账模式'),"
+            "('isolation_scope','严格','隔离口径')"
         )
         conn.execute("INSERT INTO meta(key, value) VALUES ('seeded','1')")
         conn.execute(
@@ -96,7 +100,7 @@ def seed_if_needed(db_path: str | None = None) -> dict:
             "seeded": True,
             "nodes": len(nodes),
             "edges": len(edges) + 1,
-            "settings": 3,
+            "settings": 4,
         }
 
 
@@ -108,6 +112,9 @@ def reset_seed(db_path: str | None = None) -> None:
             "impact_hits",
             "impact_jobs",
             "coverage_reports",
+            "ingest_batches",
+            "isolation_vouchers",
+            "revision_windows",
             "lineage_edges",
             "lineage_nodes",
             "lab_settings",

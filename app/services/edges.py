@@ -1,7 +1,8 @@
-"""血缘边：创建、发布、作废。"""
+"""血缘边：创建、发布、作废；边依赖附页。"""
 from __future__ import annotations
 
 from app.db import get_db
+from app.services import revisions as revisions_svc
 from app.services.errors import ServiceError
 
 
@@ -16,6 +17,37 @@ def list_edges(db_path: str | None = None) -> list[dict]:
             "ORDER BY e.id"
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def list_edge_deps(db_path: str | None = None) -> dict:
+    """边依赖附页：每条边的上下游隔离标记与当前口径下是否参与影响。"""
+    with get_db(db_path) as conn:
+        isolated = revisions_svc.isolated_node_ids(conn)
+        scope = revisions_svc.isolation_scope(conn)
+        rows = conn.execute(
+            "SELECT e.*, u.node_code AS upstream_code, u.table_name AS upstream_table, "
+            "d.node_code AS downstream_code, d.table_name AS downstream_table "
+            "FROM lineage_edges e "
+            "JOIN lineage_nodes u ON u.id=e.upstream_id "
+            "JOIN lineage_nodes d ON d.id=e.downstream_id "
+            "ORDER BY e.id"
+        ).fetchall()
+        items = []
+        for r in rows:
+            it = dict(r)
+            it["upstream_isolated"] = int(it["upstream_id"]) in isolated
+            it["downstream_isolated"] = int(it["downstream_id"]) in isolated
+            touches = it["upstream_isolated"] or it["downstream_isolated"]
+            # 严格口径下，沾隔离节点的已发布边不再参与影响展开。
+            it["in_impact"] = it["status"] == "已发布" and not (
+                touches and scope == "严格"
+            )
+            items.append(it)
+        return {
+            "items": items,
+            "isolation_scope": scope,
+            "isolated_total": len(isolated),
+        }
 
 
 def create_edge(

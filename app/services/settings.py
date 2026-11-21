@@ -18,6 +18,8 @@ def update_setting(key: str, value: str, db_path: str | None = None) -> dict:
     value = (value or "").strip()
     if not key or not value:
         raise ServiceError("参数键与值不能为空")
+    if key == "isolation_scope" and value not in ("严格", "宽松"):
+        raise ServiceError("隔离口径只许 严格/宽松")
     with get_db(db_path) as conn:
         row = conn.execute(
             "SELECT * FROM lab_settings WHERE key=?", (key,)

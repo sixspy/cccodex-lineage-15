@@ -1,7 +1,8 @@
-"""影响分析：从根节点沿已发布边向下展开。"""
+"""影响分析：从根节点沿已发布边向下展开；隔离窗内节点按口径跳过。"""
 from __future__ import annotations
 
 from app.db import get_db
+from app.services import revisions as revisions_svc
 from app.services.errors import ServiceError
 
 
@@ -12,6 +13,20 @@ def list_jobs(db_path: str | None = None) -> list[dict]:
             "JOIN lineage_nodes n ON n.id=j.root_node_id ORDER BY j.id DESC"
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def impact_overview(db_path: str | None = None) -> dict:
+    """作业列表 + 当前已隔离节点数与隔离口径。"""
+    with get_db(db_path) as conn:
+        rows = conn.execute(
+            "SELECT j.*, n.node_code, n.table_name FROM impact_jobs j "
+            "JOIN lineage_nodes n ON n.id=j.root_node_id ORDER BY j.id DESC"
+        ).fetchall()
+        return {
+            "items": [dict(r) for r in rows],
+            "isolated_total": len(revisions_svc.isolated_node_ids(conn)),
+            "isolation_scope": revisions_svc.isolation_scope(conn),
+        }
 
 
 def job_detail(job_id: int, db_path: str | None = None) -> dict:
@@ -40,6 +55,10 @@ def start_impact(root_node_id: int, db_path: str | None = None) -> dict:
             raise ServiceError("根节点不存在", 404)
         if root["status"] == "停用":
             raise ServiceError("停用节点不可开影响分析", 409)
+        isolated = revisions_svc.isolated_node_ids(conn)
+        scope = revisions_svc.isolation_scope(conn)
+        if root_node_id in isolated:
+            raise ServiceError("根节点在修订隔离窗内，不可启动影响分析", 409)
         running = conn.execute(
             "SELECT id FROM impact_jobs WHERE root_node_id=? AND status IN ('待执行','执行中')",
             (root_node_id,),
@@ -54,16 +73,19 @@ def start_impact(root_node_id: int, db_path: str | None = None) -> dict:
             (job_code, root_node_id),
         )
         job_id = cur.lastrowid
-        # BFS downstream via published edges
+        # BFS downstream via published edges; 隔离节点按口径跳过：
+        # 严格=断边（不入队），宽松=穿边但不记命中。
         seen = {root_node_id: 0}
         queue = [root_node_id]
+        skipped = 0
         while queue:
             cur_id = queue.pop(0)
             hop = seen[cur_id]
-            conn.execute(
-                "INSERT OR IGNORE INTO impact_hits(job_id, node_id, hop) VALUES (?,?,?)",
-                (job_id, cur_id, hop),
-            )
+            if cur_id not in isolated:
+                conn.execute(
+                    "INSERT OR IGNORE INTO impact_hits(job_id, node_id, hop) VALUES (?,?,?)",
+                    (job_id, cur_id, hop),
+                )
             kids = conn.execute(
                 "SELECT downstream_id FROM lineage_edges "
                 "WHERE upstream_id=? AND status='已发布'",
@@ -71,14 +93,22 @@ def start_impact(root_node_id: int, db_path: str | None = None) -> dict:
             ).fetchall()
             for kid in kids:
                 kid_id = int(kid["downstream_id"])
-                if kid_id not in seen:
-                    seen[kid_id] = hop + 1
-                    queue.append(kid_id)
-        affected = len(seen)
+                if kid_id in seen:
+                    continue
+                seen[kid_id] = hop + 1
+                if kid_id in isolated:
+                    skipped += 1
+                    if scope != "宽松":
+                        continue  # 严格口径：边到此截断
+                queue.append(kid_id)
+        affected = sum(1 for nid in seen if nid not in isolated)
+        message = f"影响到 {affected} 个节点"
+        if skipped:
+            message += f"，隔离跳过 {skipped} 个"
         conn.execute(
-            "UPDATE impact_jobs SET status='成功', affected_count=?, message=?, "
-            "finished_at=datetime('now') WHERE id=?",
-            (affected, f"影响到 {affected} 个节点", job_id),
+            "UPDATE impact_jobs SET status='成功', affected_count=?, isolated_count=?, "
+            "message=?, finished_at=datetime('now') WHERE id=?",
+            (affected, skipped, message, job_id),
         )
         return dict(
             conn.execute(
